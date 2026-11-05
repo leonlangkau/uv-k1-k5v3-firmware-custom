@@ -51,6 +51,19 @@ struct FrequencyBandInfo
 const uint16_t RSSI_MAX_VALUE = 65535;
 
 static uint32_t initialFreq;
+
+#ifdef ENABLE_FEAT_AU_SCANNER
+// Australian locked scanner: the spectrum only ever sweeps one of two
+// fixed ranges, UHF CB channels 1-80 or the VHF airband. KEY_5 switches.
+typedef enum { AU_BAND_CB, AU_BAND_AIR } AuBand;
+static AuBand auBand = AU_BAND_CB;
+static uint32_t auSavedRangeStart, auSavedRangeStop;
+
+#define AU_CB_START   47642500   // CB ch 1  476.4250 MHz
+#define AU_CB_STOP    47741250   // CB ch 80 477.4125 MHz (12.5 kHz grid)
+#define AU_AIR_START  11800000   // 118.000 MHz
+#define AU_AIR_STOP   13700000   // 137.000 MHz
+#endif
 static char String[32];
 
 static bool isInitialized = false;
@@ -548,7 +561,7 @@ uint16_t GetStepsCount()
     return 128 >> settings.stepsCount;
 }
 
-#ifdef ENABLE_SCAN_RANGES
+#if defined(ENABLE_SCAN_RANGES) && !defined(ENABLE_FEAT_AU_SCANNER)
 static uint16_t GetStepsCountDisplay()
 {
     if (gScanRangeStart)
@@ -588,6 +601,10 @@ static void DeInitSpectrum()
 {
     SetF(initialFreq);
     RestoreRegisters();
+#ifdef ENABLE_FEAT_AU_SCANNER
+    gScanRangeStart = auSavedRangeStart;
+    gScanRangeStop = auSavedRangeStop;
+#endif
     isInitialized = false;
 }
 
@@ -1662,7 +1679,9 @@ static void DrawNums()
 
     if (currentState == SPECTRUM)
     {
-#ifdef ENABLE_SCAN_RANGES
+#ifdef ENABLE_FEAT_AU_SCANNER
+        strcpy(String, auBand == AU_BAND_CB ? "CB80" : "AIR");
+#elif defined(ENABLE_SCAN_RANGES)
         sprintf(String, "%ux", gScanRangeStart ? GetStepsCountDisplay() : GetStepsCount());
 #else
         sprintf(String, "%ux", GetStepsCount());
@@ -1796,6 +1815,44 @@ static void DrawArrow(uint8_t x)
     }
 }
 
+#ifdef ENABLE_FEAT_AU_SCANNER
+static void ApplyAuBand(AuBand band)
+{
+    auBand = band;
+    ToggleRX(false);
+
+    if (band == AU_BAND_CB)
+    {
+        gScanRangeStart = AU_CB_START;
+        gScanRangeStop = AU_CB_STOP;
+        settings.scanStepIndex = S_STEP_12_5kHz;   // 80 points, one per channel
+        settings.modulationType = MODULATION_FM;
+        settings.listenBw = BK4819_FILTER_BW_NARROW;
+    }
+    else
+    {
+        gScanRangeStart = AU_AIR_START;
+        gScanRangeStop = AU_AIR_STOP;
+        settings.scanStepIndex = S_STEP_25_0kHz;
+        settings.modulationType = MODULATION_AM;
+        settings.listenBw = BK4819_FILTER_BW_WIDE;
+    }
+
+    currentFreq = gScanRangeStart;
+    RADIO_SetModulation(settings.modulationType);
+    BK4819_SetFilterBandwidth(settings.listenBw, false);
+
+    if (!manualSetFlag)
+        settings.rssiTriggerLevel = RSSI_MAX_VALUE;
+
+    RearmRuntimeState();
+    ResetBlacklist();
+    RelaunchScan();
+    redrawScreen = true;
+    redrawStatus = true;
+}
+#endif
+
 static bool GetDirection(KEY_Code_t key) {
     return (key == KEY_UP) ? gEeprom.SET_NAV : !gEeprom.SET_NAV;
 }
@@ -1863,10 +1920,14 @@ static void OnKeyDown(uint8_t key) {
         Blacklist();
         break;
     case KEY_5:
+#ifdef ENABLE_FEAT_AU_SCANNER
+        ApplyAuBand(auBand == AU_BAND_CB ? AU_BAND_AIR : AU_BAND_CB);
+#else
 #ifdef ENABLE_SCAN_RANGES
         if (!gScanRangeStart)
 #endif
             FreqInput();
+#endif
         break;
     case KEY_4:
 #ifdef ENABLE_SCAN_RANGES
@@ -2602,6 +2663,16 @@ void APP_RunSpectrum()
     // settings.rssiTriggerLevel = RSSI_MAX_VALUE;
 
     RearmRuntimeState();
+
+#ifdef ENABLE_FEAT_AU_SCANNER
+    // Open on airband when the VFO already sits there, otherwise on CB.
+    auSavedRangeStart = gScanRangeStart;
+    auSavedRangeStop = gScanRangeStop;
+    {
+        const uint32_t f = gTxVfo->pRX->Frequency;
+        ApplyAuBand((f >= AU_AIR_START && f <= AU_AIR_STOP) ? AU_BAND_AIR : AU_BAND_CB);
+    }
+#endif
 
     isInitialized = true;
 

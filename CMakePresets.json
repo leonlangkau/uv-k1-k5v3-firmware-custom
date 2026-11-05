@@ -57,6 +57,7 @@
                 "ENABLE_SCAN_RANGES": true,
                 "ENABLE_EXTRA_UART_CMD": false,
                 "ENABLE_FEAT_F4HWN": true,
+                "ENABLE_FEAT_AU_SCANNER": false,
                 "ENABLE_FEAT_F4HWN_FULL_WATCH": false,
                 "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_K5VIEWER": false,
@@ -156,6 +157,15 @@
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
+            }
+        },
+        {
+            "name": "AU",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_FEAT_AU_SCANNER": true,
+                "EDITION_STRING": "AU",
+                "TARGET": "f4hwn.au"
             }
         },
         {
@@ -311,6 +321,10 @@
         {
             "name": "Max",
             "configurePreset": "Max"
+        },
+        {
+            "name": "AU",
+            "configurePreset": "AU"
         }
     ]
 }
